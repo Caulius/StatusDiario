@@ -145,9 +145,39 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     await loadData();
   };
 
+  // Utility function to check for duplicates
+  const checkForDuplicates = (newData: ImportedData[], existingData: ImportedData[]): ImportedData[] => {
+    const uniqueData: ImportedData[] = [];
+    const existingKeys = new Set(
+      existingData.map(item => `${item.date}-${item.driverId}-${item.vehicleId}-${item.operationId}`)
+    );
+
+    for (const item of newData) {
+      const key = `${item.date}-${item.driverId}-${item.vehicleId}-${item.operationId}`;
+      if (!existingKeys.has(key)) {
+        uniqueData.push(item);
+        existingKeys.add(key);
+      } else {
+        console.warn('Duplicate data found and skipped:', item);
+      }
+    }
+
+    return uniqueData;
+  };
+
   // Driver functions
   const addDriver = async (driver: Omit<Driver, 'id'>) => {
     try {
+      // Check for duplicate driver by name or unique identifier
+      const existingDriver = drivers.find(d => 
+        d.name === driver.name || 
+        (driver.licenseNumber && d.licenseNumber === driver.licenseNumber)
+      );
+      
+      if (existingDriver) {
+        throw new Error('Driver already exists');
+      }
+
       const id = await driversService.add(driver);
       setDrivers(prev => [...prev, { ...driver, id }]);
     } catch (error) {
@@ -158,6 +188,18 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const updateDriver = async (id: string, driver: Omit<Driver, 'id'>) => {
     try {
+      // Check for duplicate driver name/license (excluding current driver)
+      const existingDriver = drivers.find(d => 
+        d.id !== id && (
+          d.name === driver.name || 
+          (driver.licenseNumber && d.licenseNumber === driver.licenseNumber)
+        )
+      );
+      
+      if (existingDriver) {
+        throw new Error('Driver with this name or license already exists');
+      }
+
       await driversService.update(id, driver);
       setDrivers(prev => prev.map(d => d.id === id ? { ...driver, id } : d));
     } catch (error) {
@@ -179,6 +221,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // Vehicle functions
   const addVehicle = async (vehicle: Omit<Vehicle, 'id'>) => {
     try {
+      // Check for duplicate vehicle by license plate
+      const existingVehicle = vehicles.find(v => 
+        v.licensePlate === vehicle.licensePlate
+      );
+      
+      if (existingVehicle) {
+        throw new Error('Vehicle with this license plate already exists');
+      }
+
       const id = await vehiclesService.add(vehicle);
       setVehicles(prev => [...prev, { ...vehicle, id }]);
     } catch (error) {
@@ -189,6 +240,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const updateVehicle = async (id: string, vehicle: Omit<Vehicle, 'id'>) => {
     try {
+      // Check for duplicate license plate (excluding current vehicle)
+      const existingVehicle = vehicles.find(v => 
+        v.id !== id && v.licensePlate === vehicle.licensePlate
+      );
+      
+      if (existingVehicle) {
+        throw new Error('Vehicle with this license plate already exists');
+      }
+
       await vehiclesService.update(id, vehicle);
       setVehicles(prev => prev.map(v => v.id === id ? { ...vehicle, id } : v));
     } catch (error) {
@@ -210,6 +270,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // Operation functions
   const addOperation = async (operation: Omit<Operation, 'id'>) => {
     try {
+      // Check for duplicate operation by name
+      const existingOperation = operations.find(o => 
+        o.name === operation.name
+      );
+      
+      if (existingOperation) {
+        throw new Error('Operation with this name already exists');
+      }
+
       const id = await operationsService.add(operation);
       setOperations(prev => [...prev, { ...operation, id }]);
     } catch (error) {
@@ -220,6 +289,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const updateOperation = async (id: string, operation: Omit<Operation, 'id'>) => {
     try {
+      // Check for duplicate operation name (excluding current operation)
+      const existingOperation = operations.find(o => 
+        o.id !== id && o.name === operation.name
+      );
+      
+      if (existingOperation) {
+        throw new Error('Operation with this name already exists');
+      }
+
       await operationsService.update(id, operation);
       setOperations(prev => prev.map(o => o.id === id ? { ...operation, id } : o));
     } catch (error) {
@@ -241,6 +319,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // Industry functions
   const addIndustry = async (industry: Omit<Industry, 'id'>) => {
     try {
+      // Check for duplicate industry by name
+      const existingIndustry = industries.find(i => 
+        i.name === industry.name
+      );
+      
+      if (existingIndustry) {
+        throw new Error('Industry with this name already exists');
+      }
+
       const id = await industriesService.add(industry);
       setIndustries(prev => [...prev, { ...industry, id }]);
     } catch (error) {
@@ -251,6 +338,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const updateIndustry = async (id: string, industry: Omit<Industry, 'id'>) => {
     try {
+      // Check for duplicate industry name (excluding current industry)
+      const existingIndustry = industries.find(i => 
+        i.id !== id && i.name === industry.name
+      );
+      
+      if (existingIndustry) {
+        throw new Error('Industry with this name already exists');
+      }
+
       await industriesService.update(id, industry);
       setIndustries(prev => prev.map(i => i.id === id ? { ...industry, id } : i));
     } catch (error) {
@@ -272,6 +368,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // Origin functions
   const addOrigin = async (origin: Omit<Origin, 'id'>) => {
     try {
+      // Check for duplicate origin by name
+      const existingOrigin = origins.find(o => 
+        o.name === origin.name
+      );
+      
+      if (existingOrigin) {
+        throw new Error('Origin with this name already exists');
+      }
+
       const id = await originsService.add(origin);
       setOrigins(prev => [...prev, { ...origin, id }]);
     } catch (error) {
@@ -282,6 +387,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const updateOrigin = async (id: string, origin: Omit<Origin, 'id'>) => {
     try {
+      // Check for duplicate origin name (excluding current origin)
+      const existingOrigin = origins.find(o => 
+        o.id !== id && o.name === origin.name
+      );
+      
+      if (existingOrigin) {
+        throw new Error('Origin with this name already exists');
+      }
+
       await originsService.update(id, origin);
       setOrigins(prev => prev.map(o => o.id === id ? { ...origin, id } : o));
     } catch (error) {
@@ -303,6 +417,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // Destination functions
   const addDestination = async (destination: Omit<Destination, 'id'>) => {
     try {
+      // Check for duplicate destination by name
+      const existingDestination = destinations.find(d => 
+        d.name === destination.name
+      );
+      
+      if (existingDestination) {
+        throw new Error('Destination with this name already exists');
+      }
+
       const id = await destinationsService.add(destination);
       setDestinations(prev => [...prev, { ...destination, id }]);
     } catch (error) {
@@ -313,6 +436,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const updateDestination = async (id: string, destination: Omit<Destination, 'id'>) => {
     try {
+      // Check for duplicate destination name (excluding current destination)
+      const existingDestination = destinations.find(d => 
+        d.id !== id && d.name === destination.name
+      );
+      
+      if (existingDestination) {
+        throw new Error('Destination with this name already exists');
+      }
+
       await destinationsService.update(id, destination);
       setDestinations(prev => prev.map(d => d.id === id ? { ...destination, id } : d));
     } catch (error) {
@@ -331,10 +463,22 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
   };
 
-  // Import data function
+  // Import data function - CORRIGIDO PARA EVITAR DUPLICATAS
   const importData = async (data: ImportedData[], date: string) => {
     try {
-      await importDataToFirebase(data, date);
+      // Filter out duplicates before importing
+      const uniqueData = checkForDuplicates(data, importedData);
+      
+      if (uniqueData.length === 0) {
+        console.warn('No new data to import - all records already exist');
+        return;
+      }
+
+      console.log(`Importing ${uniqueData.length} unique records out of ${data.length} total records`);
+      
+      // Import only unique data
+      await importDataToFirebase(uniqueData, date);
+      
       // Refresh imported data
       const updatedImportedData = await importedDataService.getAll();
       setImportedData(updatedImportedData);
@@ -347,6 +491,15 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // Daily status functions
   const addDailyStatus = async (status: Omit<DailyStatus, 'id'>) => {
     try {
+      // Check for duplicate daily status by date and driver
+      const existingStatus = dailyStatus.find(s => 
+        s.date === status.date && s.driverId === status.driverId
+      );
+      
+      if (existingStatus) {
+        throw new Error('Daily status for this driver and date already exists');
+      }
+
       const id = await dailyStatusService.add(status);
       setDailyStatus(prev => [...prev, { ...status, id }]);
     } catch (error) {
@@ -357,6 +510,21 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const updateDailyStatus = async (id: string, status: Partial<DailyStatus>) => {
     try {
+      // If updating date or driverId, check for duplicates
+      if (status.date || status.driverId) {
+        const currentStatus = dailyStatus.find(s => s.id === id);
+        const checkDate = status.date || currentStatus?.date;
+        const checkDriverId = status.driverId || currentStatus?.driverId;
+        
+        const existingStatus = dailyStatus.find(s => 
+          s.id !== id && s.date === checkDate && s.driverId === checkDriverId
+        );
+        
+        if (existingStatus) {
+          throw new Error('Daily status for this driver and date already exists');
+        }
+      }
+
       await dailyStatusService.update(id, status);
       setDailyStatus(prev => prev.map(s => s.id === id ? { ...s, ...status } : s));
     } catch (error) {
@@ -378,6 +546,17 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // Daily program functions
   const addDailyProgram = async (program: Omit<DailyProgram, 'id'>) => {
     try {
+      // Check for duplicate daily program by date, driver, and vehicle
+      const existingProgram = dailyPrograms.find(p => 
+        p.date === program.date && 
+        p.driverId === program.driverId && 
+        p.vehicleId === program.vehicleId
+      );
+      
+      if (existingProgram) {
+        throw new Error('Daily program for this driver, vehicle and date already exists');
+      }
+
       const id = await dailyProgramsService.add(program);
       setDailyPrograms(prev => [...prev, { ...program, id }]);
     } catch (error) {
@@ -388,6 +567,18 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
 
   const updateDailyProgram = async (id: string, program: Omit<DailyProgram, 'id'>) => {
     try {
+      // Check for duplicate daily program (excluding current program)
+      const existingProgram = dailyPrograms.find(p => 
+        p.id !== id && 
+        p.date === program.date && 
+        p.driverId === program.driverId && 
+        p.vehicleId === program.vehicleId
+      );
+      
+      if (existingProgram) {
+        throw new Error('Daily program for this driver, vehicle and date already exists');
+      }
+
       await dailyProgramsService.update(id, program);
       setDailyPrograms(prev => prev.map(p => p.id === id ? { ...program, id } : p));
     } catch (error) {
