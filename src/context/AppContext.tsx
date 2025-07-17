@@ -54,7 +54,7 @@ interface AppContextType {
   addDestination: (destination: Omit<Destination, 'id'>) => Promise<void>;
   updateDestination: (id: string, destination: Omit<Destination, 'id'>) => Promise<void>;
   deleteDestination: (id: string) => Promise<void>;
-  importData: (data: ImportedData[], date: string) => Promise<void>;
+  importData: (data: ImportedData[] | string, date: string) => Promise<void>;
   addDailyStatus: (status: Omit<DailyStatus, 'id'>) => Promise<void>;
   updateDailyStatus: (id: string, status: Partial<DailyStatus>) => Promise<void>;
   deleteDailyStatus: (id: string) => Promise<void>;
@@ -145,15 +145,116 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     await loadData();
   };
 
+  // Utility function to parse raw import data
+  const parseImportData = (rawData: string, date: string): ImportedData[] => {
+    const lines = rawData.split('\n').filter(line => line.trim() !== '');
+    const parsedData: ImportedData[] = [];
+    
+    // Process each line to extract data
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      // Skip header lines and empty lines
+      if (!line || 
+          line.includes('Transporte SAP') || 
+          line.includes('ROTAS') || 
+          line.includes('PESO') || 
+          line.includes('Caixas') ||
+          line === '**ROTAS**' ||
+          line === '**PESO**' ||
+          line === '**Caixas**') {
+        continue;
+      }
+
+      // Check if this line contains a route ID (numbers at the beginning)
+      const routeMatch = line.match(/^(\d+)/);
+      if (routeMatch) {
+        const routeId = routeMatch[1];
+        
+        // Look for the route description in the same line or next lines
+        let routeDescription = '';
+        let weight = '';
+        let boxes = '';
+        
+        // Try to extract from the same line
+        const sameLineMatch = line.match(/^(\d+)\s+(.+?)(\d+[,.]?\d*)\s+(\d+)$/);
+        if (sameLineMatch) {
+          routeDescription = sameLineMatch[2].trim();
+          weight = sameLineMatch[3].replace(',', '.');
+          boxes = sameLineMatch[4];
+        } else {
+          // Route info might be spread across multiple lines
+          // Look for route description in next line
+          if (i + 1 < lines.length) {
+            const nextLine = lines[i + 1].trim();
+            if (!nextLine.match(/^\d+/) && nextLine.length > 0) {
+              routeDescription = nextLine;
+              i++; // Skip next line since we processed it
+              
+              // Look for weight and boxes in following lines
+              if (i + 1 < lines.length) {
+                const weightLine = lines[i + 1].trim();
+                const weightMatch = weightLine.match(/(\d+[,.]?\d*)/);
+                if (weightMatch) {
+                  weight = weightMatch[1].replace(',', '.');
+                  i++; // Skip weight line
+                  
+                  // Look for boxes in next line
+                  if (i + 1 < lines.length) {
+                    const boxesLine = lines[i + 1].trim();
+                    const boxesMatch = boxesLine.match(/(\d+)/);
+                    if (boxesMatch) {
+                      boxes = boxesMatch[1];
+                      i++; // Skip boxes line
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Create ImportedData object if we have the minimum required data
+        if (routeId && routeDescription) {
+          const importedItem: ImportedData = {
+            id: routeId,
+            date: date,
+            route: routeDescription,
+            weight: parseFloat(weight) || 0,
+            boxes: parseInt(boxes) || 0,
+            driverId: '', // Will be populated later based on route matching
+            vehicleId: '', // Will be populated later based on route matching
+            operationId: '', // Will be populated later
+            // Add other required fields based on your ImportedData type
+          };
+
+          parsedData.push(importedItem);
+        }
+      }
+    }
+
+    console.log(`Parsed ${parsedData.length} records from import data`);
+    return parsedData;
+  };
+
   // Utility function to check for duplicates
   const checkForDuplicates = (newData: ImportedData[], existingData: ImportedData[]): ImportedData[] => {
     const uniqueData: ImportedData[] = [];
     const existingKeys = new Set(
-      existingData.map(item => `${item.date}-${item.driverId}-${item.vehicleId}-${item.operationId}`)
+      existingData.map(item => {
+        // Create a unique key based on available properties
+        const key = item.id ? 
+          `${item.date}-${item.id}` : 
+          `${item.date}-${item.route}-${item.weight}-${item.boxes}`;
+        return key;
+      })
     );
 
     for (const item of newData) {
-      const key = `${item.date}-${item.driverId}-${item.vehicleId}-${item.operationId}`;
+      const key = item.id ? 
+        `${item.date}-${item.id}` : 
+        `${item.date}-${item.route}-${item.weight}-${item.boxes}`;
+      
       if (!existingKeys.has(key)) {
         uniqueData.push(item);
         existingKeys.add(key);
@@ -464,17 +565,31 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   };
 
   // Import data function - CORRIGIDO PARA EVITAR DUPLICATAS
-  const importData = async (data: ImportedData[], date: string) => {
+  const importData = async (data: ImportedData[] | string, date: string) => {
     try {
+      let parsedData: ImportedData[];
+      
+      // Check if data is string (raw text) or already parsed
+      if (typeof data === 'string') {
+        parsedData = parseImportData(data, date);
+      } else {
+        parsedData = data;
+      }
+      
+      if (parsedData.length === 0) {
+        console.warn('No valid data found to import');
+        return;
+      }
+
       // Filter out duplicates before importing
-      const uniqueData = checkForDuplicates(data, importedData);
+      const uniqueData = checkForDuplicates(parsedData, importedData);
       
       if (uniqueData.length === 0) {
         console.warn('No new data to import - all records already exist');
         return;
       }
 
-      console.log(`Importing ${uniqueData.length} unique records out of ${data.length} total records`);
+      console.log(`Importing ${uniqueData.length} unique records out of ${parsedData.length} total records`);
       
       // Import only unique data
       await importDataToFirebase(uniqueData, date);
