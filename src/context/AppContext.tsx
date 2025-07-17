@@ -54,7 +54,7 @@ interface AppContextType {
   addDestination: (destination: Omit<Destination, 'id'>) => Promise<void>;
   updateDestination: (id: string, destination: Omit<Destination, 'id'>) => Promise<void>;
   deleteDestination: (id: string) => Promise<void>;
-  importData: (data: ImportedData[], date: string) => Promise<void>;
+  importData: (data: ImportedData[], date: string) => Promise<{ imported: number; duplicates: number; errors: string[] }>;
   addDailyStatus: (status: Omit<DailyStatus, 'id'>) => Promise<void>;
   updateDailyStatus: (id: string, status: Partial<DailyStatus>) => Promise<void>;
   deleteDailyStatus: (id: string) => Promise<void>;
@@ -143,6 +143,25 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // Refresh data function
   const refreshData = async () => {
     await loadData();
+  };
+
+  // Função para verificar se um registro já existe
+  const isDuplicateRecord = (newRecord: ImportedData, existingData: ImportedData[]): boolean => {
+    return existingData.some(existing => {
+      // Verifica duplicatas baseado em campos únicos
+      // Ajuste estes campos conforme a estrutura do seu ImportedData
+      return (
+        existing.transporteSAP === newRecord.transporteSAP &&
+        existing.rota === newRecord.rota &&
+        existing.date === newRecord.date
+      );
+    });
+  };
+
+  // Função para gerar uma chave única para identificar duplicatas
+  const generateRecordKey = (record: ImportedData): string => {
+    // Ajuste conforme os campos disponíveis no seu ImportedData
+    return `${record.transporteSAP || ''}-${record.rota || ''}-${record.date || ''}`;
   };
 
   // Driver functions
@@ -331,13 +350,48 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     }
   };
 
-  // Import data function
-  const importData = async (data: ImportedData[], date: string) => {
+  // Import data function - VERSÃO CORRIGIDA
+  const importData = async (data: ImportedData[], date: string): Promise<{ imported: number; duplicates: number; errors: string[] }> => {
     try {
-      await importDataToFirebase(data, date);
-      // Refresh imported data
+      // Buscar dados existentes do Firebase
+      const existingData = await importedDataService.getAll();
+      
+      // Filtrar dados para remover duplicatas
+      const uniqueData: ImportedData[] = [];
+      const duplicates: string[] = [];
+      const errors: string[] = [];
+      
+      for (const record of data) {
+        try {
+          // Adicionar a data ao registro se não existir
+          const recordWithDate = { ...record, date };
+          
+          // Verificar se é duplicata
+          if (!isDuplicateRecord(recordWithDate, existingData) && 
+              !isDuplicateRecord(recordWithDate, uniqueData)) {
+            uniqueData.push(recordWithDate);
+          } else {
+            duplicates.push(generateRecordKey(recordWithDate));
+          }
+        } catch (error) {
+          errors.push(`Erro ao processar registro: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+        }
+      }
+
+      // Importar apenas dados únicos
+      if (uniqueData.length > 0) {
+        await importDataToFirebase(uniqueData, date);
+      }
+      
+      // Atualizar estado local
       const updatedImportedData = await importedDataService.getAll();
       setImportedData(updatedImportedData);
+
+      return {
+        imported: uniqueData.length,
+        duplicates: duplicates.length,
+        errors
+      };
     } catch (error) {
       console.error('Error importing data:', error);
       throw error;
