@@ -150,18 +150,38 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
     return existingData.some(existing => {
       // Verifica duplicatas baseado em campos únicos
       // Ajuste estes campos conforme a estrutura do seu ImportedData
-      return (
-        existing.transporteSAP === newRecord.transporteSAP &&
-        existing.rota === newRecord.rota &&
-        existing.date === newRecord.date
-      );
+      const sameTransport = existing.transporteSAP === newRecord.transporteSAP;
+      const sameRoute = existing.rota === newRecord.rota;
+      const sameDate = existing.date === newRecord.date;
+      
+      // Só considera duplicata se TODOS os campos principais coincidirem
+      return sameTransport && sameRoute && sameDate;
     });
   };
 
   // Função para gerar uma chave única para identificar duplicatas
   const generateRecordKey = (record: ImportedData): string => {
     // Ajuste conforme os campos disponíveis no seu ImportedData
-    return `${record.transporteSAP || ''}-${record.rota || ''}-${record.date || ''}`;
+    return `${record.transporteSAP || 'no-transport'}-${record.rota || 'no-route'}-${record.date || 'no-date'}`;
+  };
+
+  // Função para verificar duplicatas dentro do mesmo lote
+  const findDuplicatesInBatch = (data: ImportedData[]): { unique: ImportedData[], duplicates: ImportedData[] } => {
+    const seen = new Set<string>();
+    const unique: ImportedData[] = [];
+    const duplicates: ImportedData[] = [];
+    
+    data.forEach(record => {
+      const key = generateRecordKey(record);
+      if (seen.has(key)) {
+        duplicates.push(record);
+      } else {
+        seen.add(key);
+        unique.push(record);
+      }
+    });
+    
+    return { unique, duplicates };
   };
 
   // Driver functions
@@ -353,43 +373,78 @@ export const AppProvider: React.FC<AppProviderProps> = ({ children }) => {
   // Import data function - VERSÃO CORRIGIDA
   const importData = async (data: ImportedData[], date: string): Promise<{ imported: number; duplicates: number; errors: string[] }> => {
     try {
+      console.log('Iniciando importação de', data.length, 'registros');
+      
       // Buscar dados existentes do Firebase
       const existingData = await importedDataService.getAll();
+      console.log('Dados existentes no Firebase:', existingData.length);
       
-      // Filtrar dados para remover duplicatas
-      const uniqueData: ImportedData[] = [];
-      const duplicates: string[] = [];
+      // Primeiro, adicionar data a todos os registros e validar
+      const recordsWithDate: ImportedData[] = [];
       const errors: string[] = [];
       
-      for (const record of data) {
+      data.forEach((record, index) => {
         try {
-          // Adicionar a data ao registro se não existir
-          const recordWithDate = { ...record, date };
+          // Garantir que cada registro tenha uma data
+          const recordWithDate = { 
+            ...record, 
+            date: record.date || date,
+            // Adicionar timestamp para garantir unicidade se necessário
+            importedAt: new Date().toISOString()
+          };
           
-          // Verificar se é duplicata
-          if (!isDuplicateRecord(recordWithDate, existingData) && 
-              !isDuplicateRecord(recordWithDate, uniqueData)) {
-            uniqueData.push(recordWithDate);
-          } else {
-            duplicates.push(generateRecordKey(recordWithDate));
+          // Validação básica
+          if (!recordWithDate.transporteSAP && !recordWithDate.rota) {
+            errors.push(`Registro ${index + 1}: Faltam dados obrigatórios`);
+            return;
           }
+          
+          recordsWithDate.push(recordWithDate);
         } catch (error) {
-          errors.push(`Erro ao processar registro: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+          errors.push(`Erro ao processar registro ${index + 1}: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
         }
-      }
-
+      });
+      
+      console.log('Registros com data processados:', recordsWithDate.length);
+      
+      // Remover duplicatas internas do lote atual
+      const { unique: uniqueInBatch, duplicates: duplicatesInBatch } = findDuplicatesInBatch(recordsWithDate);
+      console.log('Únicos no lote atual:', uniqueInBatch.length);
+      console.log('Duplicatas no lote atual:', duplicatesInBatch.length);
+      
+      // Verificar duplicatas com dados existentes
+      const finalUniqueData: ImportedData[] = [];
+      const duplicatesWithExisting: ImportedData[] = [];
+      
+      uniqueInBatch.forEach(record => {
+        if (isDuplicateRecord(record, existingData)) {
+          duplicatesWithExisting.push(record);
+        } else {
+          finalUniqueData.push(record);
+        }
+      });
+      
+      console.log('Registros únicos finais para importar:', finalUniqueData.length);
+      console.log('Duplicatas com dados existentes:', duplicatesWithExisting.length);
+      
       // Importar apenas dados únicos
-      if (uniqueData.length > 0) {
-        await importDataToFirebase(uniqueData, date);
+      if (finalUniqueData.length > 0) {
+        await importDataToFirebase(finalUniqueData, date);
+        console.log('Dados importados com sucesso no Firebase');
+      } else {
+        console.log('Nenhum dado novo para importar');
       }
       
       // Atualizar estado local
       const updatedImportedData = await importedDataService.getAll();
       setImportedData(updatedImportedData);
+      console.log('Estado local atualizado com', updatedImportedData.length, 'registros');
 
+      const totalDuplicates = duplicatesInBatch.length + duplicatesWithExisting.length;
+      
       return {
-        imported: uniqueData.length,
-        duplicates: duplicates.length,
+        imported: finalUniqueData.length,
+        duplicates: totalDuplicates,
         errors
       };
     } catch (error) {
